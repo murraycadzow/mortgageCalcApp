@@ -17,6 +17,19 @@ library(plotly)
 
 theme_set(theme_minimal())
 
+e <- NULL
+
+# some examples for loading events
+#inc <- seq(12, 360, by = 12)
+#e <- tibble::tibble(payment = c(2,inc),
+#                    annual_interest = c(NA,rep(c(0.055,0.057,0.059,0.058, 0.056, 0.054),length(inc)/6)),
+#                    month_payment = 1800*52/12, principle = c(NA,rep(1000, 30)))
+#e <- tibble::tibble(payment = c(2,15,36,72, 120),
+#                    annual_interest = c(NA,0.05,0.06,0.065 ,NA),
+#                    month_payment = c(5800,7300,7800, NA,3100),
+#                    principle = c(NA,-500000,NA,NA, 540000))
+
+
 # Define UI for application that draws a histogram
 ui <- fluidPage(
 
@@ -34,14 +47,17 @@ ui <- fluidPage(
       numericInput("initialprinciple",
                    "Initial principle",
                    min = 0,
-                   value = 100000
+                   value = 400000
       ),
       numericInput("interest",
                    "Interest rate (%)",
                    min = 0,
-                   value = 5
+                   value = 5,
+                  step = 0.05
       ),
-      textOutput("repayment"),
+      textOutput("weekly_repayment"),
+      textOutput("fortnightly_repayment"),
+      textOutput("monthly_repayment"),
       textOutput("total_interest"),
       textOutput("total")
     ),
@@ -78,16 +94,27 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
 
-  amort <- reactive({amort_table(principle = input$initialprinciple,
+
+  amort <- reactive({amort_event_table(principle = input$initialprinciple,
                                  annual_interest = input$interest/100,
-                                 years = input$years) %>% mutate_at(-1, funs(round(., 2)))
+                                 years = input$years, events = e) %>% mutate(interest_rate = interest_rate *100) %>% mutate_at(-1, funs(round(., 2)))
   })
 
-  output$repayment <-renderText(
-    paste("Monthly repayment amount:",monthly_payment(principle = input$initialprinciple,
-                                                      annual_interest = input$interest/100, years = input$years) %>% dollar())
+  monthly_payment_amount <- reactive({monthly_payment(principle = input$initialprinciple,
+                                             annual_interest = input$interest/100, years = input$years) })
+
+  output$monthly_repayment <-renderText(
+    paste("Monthly repayment amount:",monthly_payment_amount() %>% dollar())
   )
 
+  output$fortnightly_repayment <-renderText(
+    paste("Fortnightly repayment amount:",{as.numeric(monthly_payment_amount()) * 12 / 52 * 2} %>% dollar())
+  )
+
+
+  output$weekly_repayment <-renderText(
+    paste("Weekly repayment amount:",{monthly_payment_amount() * 12 / 52} %>% dollar())
+  )
   output$principleInterestPortionPlot <- renderPlot({
     amort() %>% select(payment, contains("portion")) %>%
       gather( key = "portion", value = "Dollars", contains("portion")) %>%
@@ -109,8 +136,9 @@ server <- function(input, output) {
   })
 
   output$amort_tab <- renderDataTable({
-    amort()
-  })
+    amort() %>% mutate_at(vars(principle:cumulative_total), funs(sprintf("%.2f", .)))
+  }, options = list(
+    columnDefs = list(list(className = 'text-right', targets = "_all"))))
 
   output$total_interest <- renderText({
     paste("Total interest:", amort() %>%
